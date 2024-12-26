@@ -871,6 +871,7 @@ class SocialNetworkApp:
 
         # Ajouter les abonnés à la Listbox
         for follower in followers:
+            print(follower)
             followers_listbox.insert(tk.END, f"{follower[0]} {follower[1]}")
 
     # Fonction pour afficher les invitations
