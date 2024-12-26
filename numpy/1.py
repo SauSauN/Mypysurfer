@@ -567,15 +567,6 @@ class SocialNetworkApp:
         lebot_fra = tk.Frame(bott_frame, bg="white", height=10)
         lebot_fra.grid(row=0, column=0, padx=10, pady=10, sticky="ew")  # Frame en haut
 
-        # Ajouter des boutons "Ami" et "Abonné"
-        ami_button = tk.Button(bott_frame, text="Ami", bg="lightblue", width=15)
-        ami_button.grid(row=1, column=0, padx=10, pady=10, sticky="ew")  # Premier bouton dans la première colonne
-
-        abonne_button = tk.Button(bott_frame, text="Abonné", bg="lightgreen", width=15)
-        abonne_button.grid(row=1, column=1, padx=10, pady=10, sticky="ew")  # Deuxième bouton dans la deuxième colonne
-
-        invit_button = tk.Button(bott_frame, text="Invitation", bg="lightyellow", width=15 )
-        invit_button.grid(row=1, column=2, padx=10, pady=10, sticky="ew")  # Deuxième bouton dans la deuxième colonne
 
         # Frame en haut in gauche principale
         letop_fra = tk.Frame(top_frame,  width=20, height=10, bg="white")
@@ -608,12 +599,21 @@ class SocialNetworkApp:
         lebottom = tk.Frame(bott_frame, width=20, height=20,  bd=2, relief="solid")
         lebottom.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 
+        # Frame en bas in gauche principale
+        leboframe = tk.Frame(bott_frame, width=2, height=2,  bd=2, relief="solid")
+        leboframe.grid(row=3, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
+
         # Texte à afficher dans le Label
         bio_text = self.current_user_bio
+
+        if bio_text == None:
+            bio_text = "##"
 
         # Si le texte commence par '#', on le laisse tel quel ou on effectue un traitement
         if bio_text.startswith("#"):
             bio_text = bio_text.strip()  # Enlever les espaces au début et à la fin, mais conserver le '#'
+
+
 
         # Limiter la taille du Label
         label = tk.Label(lebottom, 
@@ -632,9 +632,63 @@ class SocialNetworkApp:
         # Frame droite in Frame en haut in gauche principale
         self.top_frame_right = tk.Frame(top_frame, width=10, height=10,  bd=2, relief="groove")
         self.top_frame_right.pack(side="right", fill="both", expand=True)  # positionner à droite
+        
+
+        # Ajouter une Listbox pour afficher les amis
+        lebo = tk.Listbox(leboframe, width=52, height=8)
+        lebo.pack(padx=10, pady=10, fill="both", expand=True)
+
+        # Afficher la liste des amis par défaut
+        self.show_friends_list(lebo)
+
+        # Ajouter un bouton "Retour" pour vider la Listbox et fermer la fenêtre
+        back_button = tk.Button(leboframe, text="Retour",   command=self.show_friends_list(lebo))
+        back_button.pack(side="left", padx=10, pady=10)
+
+        # Ajouter un bouton "Invitations envoyées"
+        sent_invitations_button = tk.Button(
+            leboframe, text="Envoyées", bg="orange", width=15,
+            command=lambda: self.show_sent_invitations(lebo)
+        )
+        sent_invitations_button.pack(side="right", padx=10, pady=10)  # Ligne supplémentaire
+
+        # Ajouter un bouton "Accepter" pour accepter une invitation
+        accept_button = tk.Button(leboframe, text="Accepter", command=lambda: self.accept_friend_request(lebo))
+        accept_button.pack(side="right", padx=10, pady=10)
+
+        # Ajouter un bouton "Retirer" pour retirer un ami
+        remove_button = tk.Button(leboframe, text="Retirer", command=lambda: self.remove_friend(lebo))
+        remove_button.pack(side="right", padx=10, pady=10)
 
 
 
+        # Ajouter des boutons "Ami", "Abonné" et "Invitation"
+        ami_button = tk.Button(
+            bott_frame,
+            text="Ami",
+            bg="lightblue",
+            width=15,
+            command=lambda: self.show_friends_list(lebo)
+        )
+        ami_button.grid(row=1, column=0, padx=10, pady=10, sticky="ew")  # Premier bouton dans la première colonne
+
+        abonne_button = tk.Button(
+            bott_frame,
+            text="Abonné",
+            bg="lightgreen",
+            width=15,
+            command=lambda: self.show_follow_list(lebo)
+        )
+        abonne_button.grid(row=1, column=1, padx=10, pady=10, sticky="ew")  # Deuxième bouton dans la deuxième colonne
+
+        invit_button = tk.Button(
+            bott_frame,
+            text="Invitation",
+            bg="lightyellow",
+            width=15,
+            command=lambda: self.show_invitation_list(lebo)
+        )
+        invit_button.grid(row=1, column=2, padx=10, pady=10, sticky="ew")  # Troisième bouton dans la troisième colonne
 
         # Affichage des informations du profil 
         # Récupérer uniquement la première lettre de chaque variable
@@ -769,6 +823,101 @@ class SocialNetworkApp:
         # Mettre à jour la taille du canvas en fonction du contenu
         frame_posts.update_idletasks()
         canvas.config(scrollregion=canvas.bbox("all"))
+
+    def show_friends_list(self,friends_listbox):
+        # Vider la Listbox
+        friends_listbox.delete(0, tk.END)
+
+        # Connexion à la base de données pour récupérer les amis
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+
+        # Récupérer les amis de l'utilisateur actuel
+        c.execute(''' 
+            SELECT u.first_name, u.last_name, f.friend_id
+            FROM users u
+            JOIN friends f ON f.friend_id = u.id
+            WHERE f.user_id = ? 
+        ''', (self.current_user_id,))
+        friends = c.fetchall()
+        conn.close()
+
+        # Ajouter les amis à la Listbox
+        for friend in friends:
+            friends_listbox.insert(tk.END, f"{friend[0]} {friend[1]}")
+
+    # Fonction pour vider la Listbox et fermer la fenêtre
+    def clear_listbox(self,friends_listbox):
+        friends_listbox.delete(0, tk.END)
+
+    # Fonction pour afficher les abonnés
+    def show_follow_list(self, followers_listbox):
+        # Vider la Listbox
+        followers_listbox.delete(0, tk.END)
+
+        # Connexion à la base de données pour récupérer les abonnés
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+
+        # Récupérer les abonnés de l'utilisateur actuel
+        c.execute('''
+            SELECT u.first_name, u.last_name
+            FROM users u
+            JOIN followers f ON f.follower_id = u.id
+            WHERE f.user_id = ?
+        ''', (self.current_user_id,))
+        followers = c.fetchall()
+        conn.close()
+
+        # Ajouter les abonnés à la Listbox
+        for follower in followers:
+            followers_listbox.insert(tk.END, f"{follower[0]} {follower[1]}")
+
+    # Fonction pour afficher les invitations
+    def show_invitation_list(self, invitations_listbox):
+        # Vider la Listbox
+        invitations_listbox.delete(0, tk.END)
+
+        # Connexion à la base de données pour récupérer les invitations
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+
+        # Récupérer les invitations reçues par l'utilisateur actuel
+        c.execute('''
+            SELECT u.first_name, u.last_name, fr.status
+            FROM users u
+            JOIN friend_requests fr ON fr.sender_id = u.id
+            WHERE fr.receiver_id = ?
+        ''', (self.current_user_id,))
+        invitations = c.fetchall()
+        conn.close()
+
+        # Ajouter les invitations reçues à la Listbox
+        for invitation in invitations:
+            invitations_listbox.insert(tk.END, f"{invitation[0]} {invitation[1]} - {invitation[2]}")
+
+
+    def show_sent_invitations(self, invitations_listbox):
+        # Vider la Listbox
+        invitations_listbox.delete(0, tk.END)
+
+        # Connexion à la base de données
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+
+        # Récupérer les invitations envoyées
+        c.execute('''
+            SELECT u.first_name, u.last_name, fr.status
+            FROM users u
+            JOIN friend_requests fr ON fr.receiver_id = u.id
+            WHERE fr.sender_id = ?
+        ''', (self.current_user_id,))
+        sent_invitations = c.fetchall()
+        conn.close()
+
+        # Ajouter les invitations envoyées à la Listbox
+        for invitation in sent_invitations:
+            invitations_listbox.insert(tk.END, f"{invitation[0]} {invitation[1]} - {invitation[2]}")
 
 
     def like_post(self, post_id, bouton_like, like_label, user_id):
@@ -1207,6 +1356,89 @@ class SocialNetworkApp:
             messagebox.showinfo("Succès", "Vous êtes maintenant abonné.")
         
         conn.close()
+
+    def accept_friend_request(self, invitations_listbox):
+        # Récupérer la sélection de la Listbox
+        selected_item = invitations_listbox.get(tk.ACTIVE)
+        if not selected_item:
+            return  # Ne rien faire si rien n'est sélectionné
+
+        # Extraire les informations de l'invitation
+        friend_name = selected_item.split(" - ")[0]  # Exemple: "John Doe - pending"
+        first_name, last_name = friend_name.split(" ")
+
+        # Connexion à la base de données
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+
+        # Récupérer l'ID de l'ami depuis son nom
+        c.execute('''
+            SELECT id FROM users
+            WHERE first_name = ? AND last_name = ?
+        ''', (first_name, last_name))
+        friend_id = c.fetchone()
+        if friend_id:
+            friend_id = friend_id[0]
+        else:
+            conn.close()
+            return  # Ne pas continuer si l'ami n'existe pas
+
+        # Ajouter dans la table friends
+        c.execute('''
+            INSERT OR IGNORE INTO friends (user_id, friend_id)
+            VALUES (?, ?), (?, ?)
+        ''', (self.current_user_id, friend_id, friend_id, self.current_user_id))
+
+        # Marquer la demande comme acceptée
+        c.execute('''
+            UPDATE friend_requests
+            SET status = 'accepted'
+            WHERE receiver_id = ? AND sender_id = ?
+        ''', (self.current_user_id, friend_id))
+
+        conn.commit()
+        conn.close()
+
+        # Retirer l'entrée de la Listbox
+        invitations_listbox.delete(tk.ACTIVE)
+
+    def remove_friend(self, friends_listbox):
+        # Récupérer la sélection de la Listbox
+        selected_item = friends_listbox.get(tk.ACTIVE)
+        if not selected_item:
+            return  # Ne rien faire si rien n'est sélectionné
+
+        # Extraire le prénom et nom de l'ami
+        first_name, last_name = selected_item.split(" ")
+
+        # Connexion à la base de données
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+
+        # Récupérer l'ID de l'ami depuis son nom
+        c.execute('''
+            SELECT id FROM users
+            WHERE first_name = ? AND last_name = ?
+        ''', (first_name, last_name))
+        friend_id = c.fetchone()
+        if friend_id:
+            friend_id = friend_id[0]
+        else:
+            conn.close()
+            return  # Ne pas continuer si l'ami n'existe pas
+
+        # Supprimer la relation dans les deux sens
+        c.execute('''
+            DELETE FROM friends
+            WHERE (user_id = ? AND friend_id = ?)
+            OR (user_id = ? AND friend_id = ?)
+        ''', (self.current_user_id, friend_id, friend_id, self.current_user_id))
+
+        conn.commit()
+        conn.close()
+
+        # Retirer l'entrée de la Listbox
+        friends_listbox.delete(tk.ACTIVE)
 
 
 if __name__ == "__main__":
