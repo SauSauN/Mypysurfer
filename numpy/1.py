@@ -23,6 +23,19 @@ def init_db():
         )
     ''')
 
+    # Table des demandes d'amis (relation unidirectionnelle)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS friend_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id INTEGER NOT NULL,
+            receiver_id INTEGER NOT NULL,
+            status TEXT CHECK(status IN ('pending', 'accepted', 'rejected')) DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(sender_id) REFERENCES users(id),
+            FOREIGN KEY(receiver_id) REFERENCES users(id)
+        )
+    ''')
+
     # Table des publications
     c.execute('''
         CREATE TABLE IF NOT EXISTS posts (
@@ -31,7 +44,8 @@ def init_db():
             title TEXT NOT NULL, 
             content TEXT NOT NULL,
             theme TEXT, 
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,  -- Utilisation de DATETIME
+            visibility TEXT CHECK(visibility IN ('public', 'private')) DEFAULT 'public',  
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,  
             likes INTEGER DEFAULT 0,  -- Nombre de likes
             FOREIGN KEY(user_id) REFERENCES users(id)
         )
@@ -198,12 +212,40 @@ class SocialNetworkApp:
         self.post_theme_menu = tk.OptionMenu(self.root, self.post_theme_var, *themes)
         self.post_theme_menu.pack(pady=5)
 
+        # Boutons pour la visibilité (public ou privé)
+        tk.Label(self.root, text="Visibilité :").pack()
+        self.post_visibility_var = tk.StringVar(value="public")  # Valeur par défaut : public
+        tk.Radiobutton(self.root, text="Public", variable=self.post_visibility_var, value="public").pack()
+        tk.Radiobutton(self.root, text="Privé", variable=self.post_visibility_var, value="private").pack()
+
         tk.Label(self.root, text="Contenu :").pack()
         self.post_content_entry = tk.Text(self.root, height=5, width=40)
         self.post_content_entry.pack(pady=5)
 
+        # Associer un événement pour surveiller la saisie
+        self.post_content_entry.bind("<KeyRelease>", self.adjust_line_length)
+
         tk.Button(self.root, text="Publier", command=self.add_post).pack(pady=5)
         tk.Button(self.root, text="Retour", command=self.main_screen).pack(pady=5)
+
+    def adjust_line_length(self, event):
+        max_length = 110  # Longueur maximale d'une ligne
+        content = self.post_content_entry.get("1.0", "end-1c")  # Obtenir le texte
+        lines = content.split("\n")  # Diviser le contenu en lignes
+
+        # Réorganiser le texte pour déplacer le surplus à la ligne suivante
+        new_content = []
+        for line in lines:
+            while len(line) > max_length:
+                # Ajouter la partie qui tient dans la limite
+                new_content.append(line[:max_length])
+                # Garder le reste pour la prochaine ligne
+                line = line[max_length:]
+            new_content.append(line)  # Ajouter la ligne restante
+
+        # Mettre à jour le contenu du widget
+        self.post_content_entry.delete("1.0", "end")
+        self.post_content_entry.insert("1.0", "\n".join(new_content))
 
     def view_posts_screen(self):
         self.clear_screen()
@@ -293,6 +335,7 @@ class SocialNetworkApp:
         title = self.post_title_entry.get()
         content = self.post_content_entry.get("1.0", tk.END).strip()
         theme = self.post_theme_var.get()
+        visibility = self.post_visibility_var.get()  # Récupération de la visibilité
 
         if not title or not content:
             messagebox.showerror("Erreur", "Le titre et le contenu de la publication ne peuvent pas être vides.")
@@ -302,8 +345,8 @@ class SocialNetworkApp:
 
         conn = sqlite3.connect("social_network.db")
         c = conn.cursor()
-        c.execute("INSERT INTO posts (user_id, title, content, theme, created_at) VALUES (?, ?, ?, ?, ?)",
-                (self.current_user_id, title, content, theme, created_at))
+        c.execute("INSERT INTO posts (user_id, title, content, theme, visibility, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+              (self.current_user_id, title, content, theme, visibility, created_at))
         conn.commit()
         conn.close()
 
@@ -319,13 +362,50 @@ class SocialNetworkApp:
 
     def view_news(self):
         self.clear_screen()
+        # Création de frame_center comme conteneur principal
+        frme_center = tk.Frame(root, bg="white", bd=1, relief="solid")
+        frme_center.pack(fill="both", expand=True)  # Remplir toute la fenêtre
 
-        # Assurez-vous que frame_right existe
-        self.frme_right = tk.Frame(self.root)  # Initialiser frame_right si elle n'existe pas
-        self.frme_right.pack(side="right", fill="both", expand=True)
+        # Utilisation de grid pour un contrôle précis
+        frme_center.grid_columnconfigure(0, weight=1)  # Colonne gauche avec un poids réduit
+        frme_center.grid_columnconfigure(1, weight=5)  # Colonne droite avec un poids plus élevé
 
-        # Titre de l'écran "Actualités"
-        tk.Label(self.root, text="Actualités", font=("Arial", 16)).pack(pady=10)
+        # Configuration des lignes pour frame_center
+        frme_center.grid_rowconfigure(0, weight=1)  # Permet à la ligne 0 de s'étirer verticalement
+
+        # Frame gauche principale
+        self.frme_left = tk.Frame(frme_center, bg="white", height=10)
+        self.frme_left.grid(row=0, column=0, sticky="ns")  # Remplir verticalement mais conserver une largeur réduite
+
+        # Frame droite principale
+        self.frme_right = tk.Label(frme_center, bg="white")
+        self.frme_right.grid(row=0, column=1, sticky="nsew",padx=10, pady=10)  # Remplir tout l'espace disponible
+
+
+        # Frame Top dans frme_left
+        self.frame_top = tk.Frame(self.frme_left, bg="white", height=10)
+        self.frame_top.pack(side="top", fill="x")  # Remplir horizontalement
+
+
+        # Frame Bottom dans frme_left
+        self.frame_bottom = tk.Frame(self.frme_left, height=200, bg="white", bd=1, relief="solid", width=9)
+        self.frame_bottom.pack(side="bottom", fill="x")  # Remplir horizontalement
+        self.display_users(self.frame_bottom, self.current_user_id)
+
+
+        # Ajout de la barre de recherche en haut
+        search_frame = tk.Frame(self.frame_top, bg="white")
+        search_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+
+        search_label = tk.Label(search_frame, text="Rechercher:", font=("Arial", 12))
+        search_label.pack(side="left", padx=10)
+
+        search_entry = tk.Entry(search_frame, font=("Arial", 12))
+        search_entry.pack(side="left", fill="x", padx=10, expand=True)
+
+        # Bouton de recherche
+        search_button = tk.Button(search_frame, text="Rechercher", font=("Arial", 12), command=lambda: self.search_posts(search_entry.get()))
+        search_button.pack(side="right", padx=10)
 
         # Création du canvas pour les publications
         cnvas = tk.Canvas(self.frme_right, bg="white")
@@ -338,15 +418,17 @@ class SocialNetworkApp:
 
         # Création d'un frame à l'intérieur du canvas pour contenir les publications
         frme_posts = tk.Frame(cnvas, bg="white")
-        cnvas.create_window((0, 0), window=frme_posts, anchor="nw")
+        cnvas.create_window((0, 0), window=frme_posts, anchor="center")
 
         conn = sqlite3.connect("social_network.db")
         c = conn.cursor()
 
         # Récupérer des publications aléatoires
         c.execute('''
-            SELECT p.id, p.title, p.content, p.created_at
+            SELECT p.id, p.title, p.content, p.created_at, u.first_name, u.last_name
             FROM posts p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.visibility = 'public'
             ORDER BY RANDOM()
             LIMIT 10
         ''')
@@ -354,13 +436,15 @@ class SocialNetworkApp:
         conn.close()
 
         # Affichage des publications dans le frame à l'intérieur du canvas
-        for post_id, title, content, created_at in posts:
-            # Créer un Frame pour chaque publication
-            post_frme = tk.Frame(frme_posts, bd=2, relief="solid", padx=11, pady=10, width=38)
-            post_frme.pack(fill="x", padx=8, pady=5)
+        for post_id, title, content, created_at, first_name, last_name in posts:
+
+            post_frme = tk.Frame(frme_posts,  padx=11, pady=10, width=8)
+            post_frme.pack(fill="x", padx=8, pady=5, anchor="center")  # "w" pour aligner à gauche
+
+
 
             # Frame supérieur : Informations générales (date, titre)
-            letop_frme = tk.Frame(post_frme, padx=47, pady=10, width=559)
+            letop_frme = tk.Frame(post_frme, padx=47, pady=10, width=9)
             letop_frme.pack(fill="x", pady=5)
 
             # Ajouter le titre à gauche dans le Frame supérieur
@@ -368,18 +452,21 @@ class SocialNetworkApp:
             # Ajouter un Label vide pour créer un espace
             tk.Label(letop_frme, text="  ", width=30).pack(side="left")
 
+            # Ajouter le propriétaire en haut à gauche
+            tk.Label(letop_frme, text=f"{first_name} {last_name}", font=("Arial", 10, "bold")).pack(side="right", padx=10)
+
             # Ajouter la date à droite dans le Frame supérieur
             tk.Label(letop_frme, text=f"Date: {created_at}", font=("Arial", 8, "italic")).pack(side="right", padx=5)
 
             # Frame central : Contenu principal de la publication
-            lecentrl_frame = tk.Frame(post_frme, padx=47, pady=10, width=559)
+            lecentrl_frame = tk.Frame(post_frme, padx=47, pady=10, width=9)
             lecentrl_frame.pack(fill="x", pady=5)
 
             # Ajouter le contenu principal dans le Frame central
             tk.Label(lecentrl_frame, text=f"{content}", wraplength=600, justify="left").pack(side="left", padx=10)
 
             # Frame inférieur : Actions (likes, boutons)
-            lebottom_frme = tk.Frame(post_frme, padx=47, pady=10, width=559)
+            lebottom_frme = tk.Frame(post_frme, padx=47, pady=10, width=9)
             lebottom_frme.pack(fill="x", pady=5)
 
             # Récupérer le nombre de likes pour cette publication
@@ -389,6 +476,22 @@ class SocialNetworkApp:
                 SELECT COUNT(*) FROM likes WHERE post_id = ?
             ''', (post_id,))
             likes = c.fetchone()[0]
+            
+            # Vérifier si l'utilisateur a déjà liké ce post
+            c.execute('''
+                SELECT * FROM likes WHERE post_id = ? AND user_id = ?
+            ''', (post_id, self.current_user_id))
+            like_entry = c.fetchone()
+            
+            
+            # Déterminer la couleur et le texte du bouton en fonction de l'état du like
+            if like_entry:
+                like_button_text = "Liké"
+                like_button_color = "lightyellow"
+            else:
+                like_button_text = "Like"
+                like_button_color = "lightblue"
+
             conn.close()
 
             # Ajouter le nombre de likes dans le Frame inférieur
@@ -399,12 +502,12 @@ class SocialNetworkApp:
             button_frme = tk.Frame(lebottom_frme, padx=47, pady=10, width=559)
             button_frme.pack(side="right", padx=10)
 
-            # Boutons pour éditer et supprimer
-            tk.Button(button_frme, text="Supprimer", bg="red", command=lambda post_id=post_id: self.delete_post(post_id, post_frame)).pack(side="right", padx=5)
-            tk.Button(button_frme, text="Editer", bg="lightgreen", command=lambda post_id=post_id: self.edit_post(post_id)).pack(side="right", padx=5)
+            # Créer le bouton de like en utilisant la configuration
+            bouton_like = tk.Button(button_frme, text=like_button_text, bg=like_button_color)
 
-            # Bouton de like
-            tk.Button(button_frme, text="Like", bg="lightblue", command=lambda post_id=post_id, like_label=like_label: self.like_post(post_id, like_label, self.current_user_id)).pack(side="right", padx=5)
+            # Mettre à jour le bouton avec l'action
+            bouton_like.config(command=lambda post_id=post_id, bouton_like=bouton_like, like_lbel=like_lbel: self.like_post(post_id, bouton_like, like_lbel, self.current_user_id))
+            bouton_like.pack(side="right", padx=5)
 
         # Mettre à jour la taille du canvas en fonction du contenu
         frme_posts.update_idletasks()
@@ -412,7 +515,6 @@ class SocialNetworkApp:
 
         # Ajout des boutons en bas
         self.add_bottom_buttons()
-
 
     def view_messages(self):
         self.clear_screen()
@@ -452,13 +554,14 @@ class SocialNetworkApp:
         top_frame.pack(side="top", fill="x") 
 
         # Frame en bas dans le frame_left
-        bott_frame = tk.Frame(self.frame_left, bg="white", height=130)
+        bott_frame = tk.Frame(top_frame, bg="white", height=130)
         bott_frame.pack(side="bottom", fill="x")
 
         # Configuration de la grille pour bott_frame
         bott_frame.grid_rowconfigure(0, weight=1)  # Cela rend la première ligne élastique
         bott_frame.grid_columnconfigure(0, weight=1)  # Cela rend la première colonne élastique
         bott_frame.grid_columnconfigure(1, weight=1)  # Ajout d'une seconde colonne élastique
+        bott_frame.grid_columnconfigure(2, weight=1)  # Troisième colonne élastique
 
         # Frame interne à bott_frame (ajout d'une grille à l'intérieur de bott_frame)
         lebot_fra = tk.Frame(bott_frame, bg="white", height=10)
@@ -470,7 +573,10 @@ class SocialNetworkApp:
 
         abonne_button = tk.Button(bott_frame, text="Abonné", bg="lightgreen", width=15)
         abonne_button.grid(row=1, column=1, padx=10, pady=10, sticky="ew")  # Deuxième bouton dans la deuxième colonne
-        
+
+        invit_button = tk.Button(bott_frame, text="Invitation", bg="lightyellow", width=15 )
+        invit_button.grid(row=1, column=2, padx=10, pady=10, sticky="ew")  # Deuxième bouton dans la deuxième colonne
+
         # Frame en haut in gauche principale
         letop_fra = tk.Frame(top_frame,  width=20, height=10, bg="white")
         letop_fra.pack(side="top", fill="x")  # "top" positionne la frame en haut et "fill='x'" fait en sorte qu'elle occupe toute la largeur
@@ -479,17 +585,45 @@ class SocialNetworkApp:
         lebottom_fra = tk.Frame(top_frame, width=20, height=20, bg="white")
         lebottom_fra.pack(side="bottom", fill="x", pady=10)  # Frame au bas de l'écran
 
+        # Configuration de la grille pour lebottom_fra
+        lebottom_fra.grid_rowconfigure(0, weight=1)  # Première ligne élastique
+        lebottom_fra.grid_columnconfigure(0, weight=1)  # Première colonne élastique
+        lebottom_fra.grid_columnconfigure(1, weight=1)  # Deuxième colonne élastique
+        lebottom_fra.grid_columnconfigure(2, weight=1)  # Troisième colonne élastique
 
 
-        tk.Label(lebot_fra, text=f"{self.current_user_bio}").pack(pady=5)
 
-        # Boutons alignés horizontalement dans le bottom_frame
-        tk.Button(lebottom_fra, text="Ajouter une publication", command=self.add_post_screen).pack(side="left", padx=10)
-        tk.Button(lebottom_fra, text="Modifier mon profil", command=self.edit_profile_screen).pack(side="left", padx=10)
-        tk.Button(lebottom_fra, text="Déconnexion", command=self.logout, bg="red").pack(side="right", padx=10)
+        # Boutons alignés horizontalement dans lebottom_fra
+        Publication_button = tk.Button(lebottom_fra, text="Publication", command=self.add_post_screen, width=15)
+        Publication_button.grid(row=1, column=0, padx=10, pady=10, sticky="ew")  # Premier bouton dans la première colonne
 
-        
+        Profil_button = tk.Button(lebottom_fra, text="Profil", command=self.edit_profile_screen, width=15)
+        Profil_button.grid(row=1, column=1, padx=10, pady=10, sticky="ew")  # Deuxième bouton dans la deuxième colonne
 
+        Deconnexion_button = tk.Button(lebottom_fra, text="Déconnexion", command=self.logout, bg="red", width=15)
+        Deconnexion_button.grid(row=1, column=2, padx=10, pady=10, sticky="ew")  # Troisième bouton dans la troisième colonne
+
+
+        # Frame en bas in gauche principale
+        lebottom = tk.Frame(bott_frame, width=20, height=20,  bd=2, relief="solid")
+        lebottom.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
+
+        # Texte à afficher dans le Label
+        bio_text = self.current_user_bio
+
+        # Si le texte commence par '#', on le laisse tel quel ou on effectue un traitement
+        if bio_text.startswith("#"):
+            bio_text = bio_text.strip()  # Enlever les espaces au début et à la fin, mais conserver le '#'
+
+        # Limiter la taille du Label
+        label = tk.Label(lebottom, 
+                        text=bio_text, 
+                        anchor="w",       # Aligner à gauche
+                        justify="left",   # Justification du texte
+                        width=40,         # Largeur en caractères (non en pixels)
+                        wraplength=300)   # Largeur max en pixels pour le texte avant qu'il se coupe
+
+        label.grid(row=0, column=0, columnspan=3, pady=5, sticky="ew")
 
         # Frame gauche in Frame en haut in gauche principale
         self.top_frame_left = tk.Frame(top_frame, width=10, height=10,  bd=2, relief="groove")
@@ -547,7 +681,7 @@ class SocialNetworkApp:
 
         # Récupérer toutes les publications de l'utilisateur
         c.execute('''
-            SELECT p.id, p.title, p.content, p.created_at
+            SELECT p.id, p.title, p.content, p.created_at, p.visibility
             FROM posts p
             WHERE p.user_id = ?
             ORDER BY p.created_at DESC
@@ -556,7 +690,7 @@ class SocialNetworkApp:
         conn.close()
 
         # Affichage des publications dans le frame à l'intérieur du canvas
-        for post_id, title, content, created_at in posts:
+        for post_id, title, content, created_at, visibility in posts:
             # Créer un Frame pour chaque publication
             post_frame = tk.Frame(frame_posts, bd=2, relief="solid", padx=11, pady=10, width=38)
             post_frame.pack(fill="x", padx=8, pady=5)
@@ -567,11 +701,16 @@ class SocialNetworkApp:
 
             # Ajouter le titre à gauche dans le Frame supérieur
             tk.Label(letop_frame, text=f"Titre: {title}", font=("Arial", 12, "bold")).pack(side="left", padx=10)
+
             # Ajouter un Label vide pour créer un espace
             tk.Label(letop_frame, text="  ", width=30).pack(side="left")
 
             # Ajouter la date à droite dans le Frame supérieur
-            tk.Label(letop_frame, text=f"Date: {created_at}", font=("Arial", 8, "italic")).pack(side="right", padx=5)
+            tk.Label(letop_frame, text=f"Date: {created_at}", font=("Arial", 8, "italic")).pack(side="right", padx=5)        
+
+            # Ajouter la visibilité à droite
+            visibility_text = "Public" if visibility == "public" else "Privé"
+            tk.Label(letop_frame, text=f"Visibilité: {visibility_text}", font=("Arial", 10)).pack(side="right", padx=5)
 
             # Frame central : Contenu principal de la publication
             lecentral_frame = tk.Frame(post_frame, padx=47, pady=10, width=559)
@@ -591,6 +730,21 @@ class SocialNetworkApp:
                 SELECT COUNT(*) FROM likes WHERE post_id = ?
             ''', (post_id,))
             likes = c.fetchone()[0]
+            
+            # Vérifier si l'utilisateur a déjà liké ce post
+            c.execute('''
+                SELECT * FROM likes WHERE post_id = ? AND user_id = ?
+            ''', (post_id, self.current_user_id))
+            like_entry = c.fetchone()
+            
+            # Déterminer la couleur et le texte du bouton en fonction de l'état du like
+            if like_entry:
+                like_button_text = "Liké"
+                like_button_color = "lightyellow"
+            else:
+                like_button_text = "Like"
+                like_button_color = "lightblue"
+
             conn.close()
 
             # Ajouter le nombre de likes dans le Frame inférieur
@@ -605,14 +759,19 @@ class SocialNetworkApp:
             tk.Button(button_frame, text="Supprimer", bg="red", command=lambda post_id=post_id: self.delete_post(post_id, post_frame)).pack(side="right", padx=5)
             tk.Button(button_frame, text="Editer", bg="lightgreen", command=lambda post_id=post_id: self.edit_post(post_id)).pack(side="right", padx=5)
 
-            # Bouton de like
-            tk.Button(button_frame, text="Like", bg="lightblue", command=lambda post_id=post_id, like_label=like_label: self.like_post(post_id, like_label, self.current_user_id)).pack(side="right", padx=5)
+            # Créer le bouton de like en utilisant la configuration
+            bouton_like = tk.Button(button_frame, text=like_button_text, bg=like_button_color)
+
+            # Mettre à jour le bouton avec l'action
+            bouton_like.config(command=lambda post_id=post_id, bouton_like=bouton_like, like_label=like_label: self.like_post(post_id, bouton_like, like_label, self.current_user_id))
+            bouton_like.pack(side="right", padx=5)
 
         # Mettre à jour la taille du canvas en fonction du contenu
         frame_posts.update_idletasks()
         canvas.config(scrollregion=canvas.bbox("all"))
 
-    def like_post(self, post_id, like_label, user_id):
+
+    def like_post(self, post_id, bouton_like, like_label, user_id):
         conn = sqlite3.connect("social_network.db")
         c = conn.cursor()
 
@@ -629,12 +788,14 @@ class SocialNetworkApp:
                 DELETE FROM likes
                 WHERE post_id = ? AND user_id = ?
             ''', (post_id, user_id))
+            bouton_like.config(text="Like", bg="lightblue")
         else:
             # Si l'utilisateur n'a pas encore aimé ce post, on ajoute un like
-            c.execute('''
+            c.execute(''' 
                 INSERT INTO likes (post_id, user_id)
                 VALUES (?, ?)
             ''', (post_id, user_id))
+            bouton_like.config(text="Liké", bg="lightyellow")
 
         conn.commit()
 
@@ -648,17 +809,21 @@ class SocialNetworkApp:
         # Mettre à jour l'affichage des likes
         like_label.config(text=f"Likes: {new_likes}")
 
+        # Mettre à jour immédiatement l'affichage
+        bouton_like.update()
+        like_label.update()
+
     def edit_post(self, post_id):
         self.clear_screen()
 
         conn = sqlite3.connect("social_network.db")
         c = conn.cursor()
         c.execute('''
-            SELECT title, content, theme
+            SELECT title, content, theme, visibility
             FROM posts
             WHERE id = ?
         ''', (post_id,))
-        title, content, theme = c.fetchone()
+        title, content, theme, visibility = c.fetchone()
         conn.close()
 
         tk.Label(self.root, text="Titre :").pack()
@@ -684,19 +849,26 @@ class SocialNetworkApp:
         edit_theme_var.set(theme if theme else themes[0])  # Utilisez le thème existant ou un par défaut
         tk.OptionMenu(self.root, edit_theme_var, *themes).pack(pady=5)
 
+        # Boutons pour la visibilité (public ou privé)
+        tk.Label(self.root, text="Visibilité :").pack()
+        visibility_var = tk.StringVar(value=visibility)  # Utilisez la visibilité actuelle comme valeur par défaut
+        tk.Radiobutton(self.root, text="Public", variable=visibility_var, value="public").pack()
+        tk.Radiobutton(self.root, text="Privé", variable=visibility_var, value="private").pack()
+
         tk.Label(self.root, text="Contenu :").pack()
         edit_content_entry = tk.Text(self.root, height=5, width=40)
         edit_content_entry.insert(tk.END, content)
         edit_content_entry.pack(pady=5)
 
         tk.Button(self.root, text="Enregistrer",
-                command=lambda: self.save_edited_post(post_id, edit_title_entry, edit_theme_var, edit_content_entry)).pack(pady=5)
+                command=lambda: self.save_edited_post(post_id, edit_title_entry, edit_theme_var, edit_content_entry, visibility_var)).pack(pady=5)
         tk.Button(self.root, text="Retour", command=self.view_posts_screen).pack(pady=5)
 
-    def save_edited_post(self, post_id, edit_title_entry, edit_theme_var, edit_content_entry):
+    def save_edited_post(self, post_id, edit_title_entry, edit_theme_var, edit_content_entry, visibility_var):
         new_title = edit_title_entry.get()
         new_theme = edit_theme_var.get()
         new_content = edit_content_entry.get("1.0", tk.END).strip()
+        new_visibility = visibility_var.get()
 
         if not new_title or not new_content:
             messagebox.showerror("Erreur", "Le titre, le thème et le contenu ne peuvent pas être vides.")
@@ -706,9 +878,9 @@ class SocialNetworkApp:
         c = conn.cursor()
         c.execute('''
             UPDATE posts
-            SET title = ?, theme = ?, content = ?
+            SET title = ?, theme = ?, content = ?, visibility = ?
             WHERE id = ?
-        ''', (new_title, new_theme, new_content, post_id))
+        ''', (new_title, new_theme, new_content, new_visibility, post_id))
         conn.commit()
         conn.close()
 
@@ -765,9 +937,14 @@ class SocialNetworkApp:
 
         # Bio (ajout de la bio dans le formulaire)
         tk.Label(self.root, text="Bio :").pack()
-        edit_bio_entry = tk.Entry(self.root)
-        edit_bio_entry.insert(0, self.current_user_bio if self.current_user_bio else "")
+        edit_bio_entry = tk.Text(self.root, height=5, width=40)
+
+        # Insérer la bio de l'utilisateur si elle existe, sinon rien
+        if self.current_user_bio:
+            edit_bio_entry.insert("1.0", self.current_user_bio)
+
         edit_bio_entry.pack(pady=5)
+
 
         # Mot de passe
         tk.Label(self.root, text="Mot de passe :").pack()
@@ -784,7 +961,7 @@ class SocialNetworkApp:
         new_last_name = last_name_entry.get()
         new_phone = phone_entry.get()
         new_password = password_entry.get()
-        new_bio = bio_entry.get()  # Récupérer la nouvelle bio
+        new_bio =  bio_entry.get("1.0", "end").strip() 
 
         # Validation des champs
         if not new_first_name or not new_last_name or not new_password:
@@ -813,6 +990,223 @@ class SocialNetworkApp:
 
         messagebox.showinfo("Succès", "Profil mis à jour avec succès.")
         self.view_profile()
+
+    def search_posts(self, search_term):
+        self.clear_screen()
+        # Création de frame_center comme conteneur principal
+        frme_center = tk.Frame(root, bg="white", bd=1, relief="solid")
+        frme_center.pack(fill="both", expand=True)  # Remplir toute la fenêtre
+
+        # Utilisation de grid pour un contrôle précis
+        frme_center.grid_columnconfigure(0, weight=1)  # Colonne gauche avec un poids réduit
+        frme_center.grid_columnconfigure(1, weight=4)  # Colonne droite avec un poids plus élevé
+
+        # Configuration des lignes pour frame_center
+        frme_center.grid_rowconfigure(0, weight=1)  # Permet à la ligne 0 de s'étirer verticalement
+
+        # Frame gauche principale
+        self.frme_left = tk.Frame(frme_center, bg="white", height=10)
+        self.frme_left.grid(row=0, column=0, sticky="ns")  # Remplir verticalement mais conserver une largeur réduite
+
+        # Frame droite principale
+        self.frme_right = tk.Frame(frme_center, bg="white")
+        self.frme_right.grid(row=0, column=1, sticky="nsew")  # Remplir tout l'espace disponible
+
+
+        # Frame Top dans frme_left
+        self.frame_top = tk.Frame(self.frme_left, bg="lightblue", height=10)
+        self.frame_top.pack(side="top", fill="x")  # Remplir horizontalement
+
+        # Ajout de la barre de recherche en haut
+        search_frame = tk.Frame(self.frame_top, bg="lightblue", height=10)
+        search_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+
+        search_label = tk.Label(search_frame, text="Rechercher:", font=("Arial", 12))
+        search_label.pack(side="left", padx=10)
+
+        search_entry = tk.Entry(search_frame, font=("Arial", 12))
+        search_entry.insert(0, search_term)  # Remplir le champ de recherche avec le terme
+        search_entry.pack(side="left", fill="x", padx=10, expand=True)
+
+        # Bouton de recherche
+        search_button = tk.Button(search_frame, text="Rechercher", font=("Arial", 12), command=lambda: self.search_posts(search_entry.get()))
+        search_button.pack(side="right", padx=10)
+
+        # Création du canvas pour les publications
+        cnvas = tk.Canvas(self.frme_right, bg="white")
+        cnvas.pack(side="left", fill="both", expand=True)
+
+        # Scrollbar associée au canvas
+        scrollbr = tk.Scrollbar(self.frme_right, orient="vertical", command=cnvas.yview)
+        scrollbr.pack(side="right", fill="y")
+        cnvas.configure(yscrollcommand=scrollbr.set)
+
+        # Création d'un frame à l'intérieur du canvas pour contenir les publications
+        frme_posts = tk.Frame(cnvas, bg="white")
+        cnvas.create_window((0, 0), window=frme_posts, anchor="nw")
+
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+
+        # Recherche des publications par titre ou contenu correspondant au terme de recherche
+        c.execute('''
+            SELECT p.id, p.title, p.content, p.created_at, u.first_name, u.last_name
+            FROM posts p
+            JOIN users u ON p.user_id = u.id
+            WHERE (p.title LIKE ? OR p.content LIKE ?)
+            AND p.visibility = 'public'
+            ORDER BY p.created_at DESC
+        ''', ('%' + search_term + '%', '%' + search_term + '%'))
+
+        posts = c.fetchall()
+        conn.close()
+
+        if not posts:
+            tk.Label(frme_posts, text="Aucun résultat trouvé.", font=("Arial", 14), fg="red").pack()
+
+        # Affichage des publications dans le frame à l'intérieur du canvas
+        for post_id, title, content, created_at, first_name, last_name in posts:
+            # Créer un Frame pour chaque publication
+            post_frme = tk.Frame(frme_posts, bd=2, relief="solid", padx=11, pady=10, width=38)
+            post_frme.pack(fill="x", padx=8, pady=5)
+
+            # Frame supérieur : Informations générales (date, titre)
+            letop_frme = tk.Frame(post_frme, padx=47, pady=10, width=559)
+            letop_frme.pack(fill="x", pady=5)
+
+            # Ajouter le titre à gauche dans le Frame supérieur
+            tk.Label(letop_frme, text=f"Titre: {title}", font=("Arial", 12, "bold")).pack(side="left", padx=10)
+
+            # Ajouter le propriétaire en haut à gauche
+            tk.Label(letop_frme, text=f"{first_name} {last_name}", font=("Arial", 10, "bold")).pack(side="right", padx=10)
+
+            # Ajouter la date à droite dans le Frame supérieur
+            tk.Label(letop_frme, text=f"Date: {created_at}", font=("Arial", 8, "italic")).pack(side="right", padx=5)
+
+            # Frame central : Contenu principal de la publication
+            lecentrl_frame = tk.Frame(post_frme, padx=47, pady=10, width=559)
+            lecentrl_frame.pack(fill="x", pady=5)
+
+            # Ajouter le contenu principal dans le Frame central
+            tk.Label(lecentrl_frame, text=f"{content}", wraplength=600, justify="left").pack(side="left", padx=10)
+
+            # Frame inférieur : Actions (likes, boutons)
+            lebottom_frme = tk.Frame(post_frme, padx=47, pady=10, width=559)
+            lebottom_frme.pack(fill="x", pady=5)
+
+            # Récupérer le nombre de likes pour cette publication
+            conn = sqlite3.connect("social_network.db")
+            c = conn.cursor()
+            c.execute('''
+                SELECT COUNT(*) FROM likes WHERE post_id = ?
+            ''', (post_id,))
+            likes = c.fetchone()[0]
+            conn.close()
+
+            # Ajouter le nombre de likes dans le Frame inférieur
+            like_lbel = tk.Label(lebottom_frme, text=f"Likes: {likes}", font=("Arial", 10))
+            like_lbel.pack(side="left", padx=5)
+
+            # Boutons (Supprimer, Éditer, Like) dans le Frame inférieur
+            button_frme = tk.Frame(lebottom_frme, padx=47, pady=10, width=559)
+            button_frme.pack(side="right", padx=10)
+
+            # Bouton de like
+            tk.Button(button_frme, text="Like", bg="lightblue", command=lambda post_id=post_id, like_label=like_lbel: self.like_post(post_id, like_label, self.current_user_id)).pack(side="right", padx=5)
+
+        # Mettre à jour la taille du canvas en fonction du contenu
+        frme_posts.update_idletasks()
+        cnvas.config(scrollregion=cnvas.bbox("all"))
+
+        # Ajout des boutons en bas
+        self.add_bottom_buttons()
+
+    def display_users(self, frame_bottom, sender_id):
+        # Récupérer tous les utilisateurs aléatoirement depuis la base de données
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+        c.execute('''SELECT id, first_name, last_name, email FROM users ORDER BY RANDOM() LIMIT 90''')  # Limiter à 10 utilisateurs
+        users = c.fetchall()
+        conn.close()
+
+        # Création d'une Listbox pour afficher les utilisateurs
+        self.user_listbox = tk.Listbox(frame_bottom, height=29, selectmode=tk.SINGLE, width=9)
+        self.user_listbox.pack(fill="both", padx=10, pady=10)
+
+        # Stockage des IDs d'utilisateurs dans un dictionnaire pour la sélection
+        self.user_map = {}
+
+        # Affichage des utilisateurs dans la Listbox
+        for user_id, first_name, last_name, email in users:
+            user_info = f"{first_name} {last_name} *------* {email}"
+            self.user_listbox.insert(tk.END, user_info)
+            self.user_map[user_info] = user_id  # Associer l'info utilisateur à l'ID
+
+        # Boutons pour envoyer des demandes d'ami ou s'abonner
+        button_frame = tk.Frame(frame_bottom, bg="white")
+        button_frame.pack(fill="x", padx=10, pady=10)
+
+        invite_button = tk.Button(
+            button_frame, text="Inviter", 
+            command=lambda: self.handle_friend_request(sender_id), bg="lightgreen"
+        )
+        invite_button.pack(side="left", padx=10)
+
+        follow_button = tk.Button(
+            button_frame, text="S'abonner", 
+            command=lambda: self.handle_follow(sender_id), bg="red"
+        )
+        follow_button.pack(side="left", padx=10)
+
+    def handle_friend_request(self, sender_id):
+        # Obtenir l'utilisateur sélectionné
+        selection = self.user_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("Erreur", "Veuillez sélectionner un utilisateur.")
+            return
+
+        selected_user_info = self.user_listbox.get(selection[0])
+        receiver_id = self.user_map[selected_user_info]
+
+        # Vérifier et envoyer la demande
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+        c.execute('SELECT * FROM friend_requests WHERE sender_id = ? AND receiver_id = ?', (sender_id, receiver_id))
+        request = c.fetchone()
+
+        if request:
+            messagebox.showinfo("Info", "Demande déjà envoyée.")
+        else:
+            c.execute('INSERT INTO friend_requests (sender_id, receiver_id) VALUES (?, ?)', (sender_id, receiver_id))
+            conn.commit()
+            messagebox.showinfo("Succès", "Demande d'ami envoyée.")
+        
+        conn.close()
+
+    def handle_follow(self, sender_id):
+        # Obtenir l'utilisateur sélectionné
+        selection = self.user_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("Erreur", "Veuillez sélectionner un utilisateur.")
+            return
+
+        selected_user_info = self.user_listbox.get(selection[0])
+        receiver_id = self.user_map[selected_user_info]
+
+        # Ajouter l'abonnement
+        conn = sqlite3.connect("social_network.db")
+        c = conn.cursor()
+        c.execute('SELECT * FROM followers WHERE user_id = ? AND follower_id = ?', (receiver_id, sender_id))
+        follow = c.fetchone()
+
+        if follow:
+            messagebox.showinfo("Info", "Vous êtes déjà abonné.")
+        else:
+            c.execute('INSERT INTO followers (user_id, follower_id) VALUES (?, ?)', (receiver_id, sender_id))
+            conn.commit()
+            messagebox.showinfo("Succès", "Vous êtes maintenant abonné.")
+        
+        conn.close()
 
 
 if __name__ == "__main__":
