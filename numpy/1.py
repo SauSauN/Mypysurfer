@@ -1,7 +1,9 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
+import PyPDF2  # Import PyPDF2 for PDF processing
 import sqlite3
 import datetime
+
 
 # Initialiser la base de données
 import sqlite3
@@ -107,8 +109,9 @@ class SocialNetworkApp:
         self.root.title("Réseau Social")
         self.current_user_id = None
         self.current_user_name = None
+        self.pdf_text = None  # Store extracted PDF text
 
-        # Interface de connexion
+        # Initialize the screen
         self.login_screen()
 
     def login_screen(self):
@@ -196,15 +199,15 @@ class SocialNetworkApp:
         tk.Label(self.root, text="Thème :").pack()
         themes = [
             "Cuisine", "Voyage", "Décoration", "Technologie", "Sport",
-            "Musique", "Cinéma", "Lecture", "Art", "Histoire", 
+            "Musique", "Cinéma", "Lecture", "Art", "Histoire",
             "Mode", "Science", "Animaux", "Santé", "Bien-être",
-            "Photographie", "Éducation", "Environnement", "Finance", 
-            "Entrepreneuriat", "Gaming", "Humour", "Actualités", 
-            "Politique", "Spiritualité", "Familial", "DIY", 
-            "Automobile", "Beauté", "Relations", "Culture", 
-            "Littérature", "Nature", "Technologie émergente", 
-            "Espace", "Voyages exotiques", "Fêtes", "Psychologie", 
-            "Langues", "Jardinage", "Films d'animation", 
+            "Photographie", "Éducation", "Environnement", "Finance",
+            "Entrepreneuriat", "Gaming", "Humour", "Actualités",
+            "Politique", "Spiritualité", "Familial", "DIY",
+            "Automobile", "Beauté", "Relations", "Culture",
+            "Littérature", "Nature", "Technologie émergente",
+            "Espace", "Voyages exotiques", "Fêtes", "Psychologie",
+            "Langues", "Jardinage", "Films d'animation",
             "Documentaires", "Astronomie", "Artisanat"
         ]
         self.post_theme_var = tk.StringVar(self.root)
@@ -225,8 +228,28 @@ class SocialNetworkApp:
         # Associer un événement pour surveiller la saisie
         self.post_content_entry.bind("<KeyRelease>", self.adjust_line_length)
 
+        # Bouton pour télécharger un fichier PDF
+        tk.Button(self.root, text="Ajouter un PDF", command=self.upload_pdf).pack(pady=5)
+
         tk.Button(self.root, text="Publier", command=self.add_post).pack(pady=5)
         tk.Button(self.root, text="Retour", command=self.main_screen).pack(pady=5)
+
+    def upload_pdf(self):
+        """Ouvre un dialogue pour choisir un fichier PDF et en extraire le texte."""
+        file_path = filedialog.askopenfilename(filetypes=[("Fichiers PDF", "*.pdf")])
+        if file_path:
+            # Extraire le texte du fichier PDF
+            try:
+                with open(file_path, "rb") as file:
+                    reader = PyPDF2.PdfReader(file)
+                    pdf_text = ""
+                    for page in reader.pages:
+                        pdf_text += page.extract_text()
+                # Afficher le texte extrait dans le champ de contenu
+                self.post_content_entry.insert(tk.END, pdf_text)
+                self.pdf_text = pdf_text  # Sauvegarder le texte extrait
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Impossible d'extraire le texte du PDF: {e}")
 
     def adjust_line_length(self, event):
         max_length = 110  # Longueur maximale d'une ligne
@@ -352,7 +375,7 @@ class SocialNetworkApp:
 
         messagebox.showinfo("Succès", "Publication ajoutée.")
         self.main_screen()
-
+        
     def logout(self):
         self.current_user_id = None
         self.current_user_firstname = None
@@ -607,7 +630,7 @@ class SocialNetworkApp:
         bio_text = self.current_user_bio
 
         if bio_text == None:
-            bio_text = "##"
+            bio_text = "##BIO"
 
         # Si le texte commence par '#', on le laisse tel quel ou on effectue un traitement
         if bio_text.startswith("#"):
@@ -897,7 +920,6 @@ class SocialNetworkApp:
         for invitation in invitations:
             invitations_listbox.insert(tk.END, f"{invitation[0]} {invitation[1]} - {invitation[2]}")
 
-
     def show_sent_invitations(self, invitations_listbox):
         # Vider la Listbox
         invitations_listbox.delete(0, tk.END)
@@ -919,7 +941,6 @@ class SocialNetworkApp:
         # Ajouter les invitations envoyées à la Listbox
         for invitation in sent_invitations:
             invitations_listbox.insert(tk.END, f"{invitation[0]} {invitation[1]} - {invitation[2]}")
-
 
     def like_post(self, post_id, bouton_like, like_label, user_id):
         conn = sqlite3.connect("social_network.db")
