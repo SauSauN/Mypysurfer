@@ -232,7 +232,7 @@ class SocialNetworkApp:
         tk.Button(self.root, text="Ajouter un PDF", command=self.upload_pdf).pack(pady=5)
 
         tk.Button(self.root, text="Publier", command=self.add_post).pack(pady=5)
-        tk.Button(self.root, text="Retour", command=self.main_screen).pack(pady=5)
+        tk.Button(self.root, text="Retour", command=self.view_profile).pack(pady=5)
 
     def upload_pdf(self):
         """Ouvre un dialogue pour choisir un fichier PDF et en extraire le texte."""
@@ -665,7 +665,7 @@ class SocialNetworkApp:
         self.show_friends_list(lebo)
 
         # Ajouter un bouton "Retour" pour vider la Listbox et fermer la fenêtre
-        back_button = tk.Button(leboframe, text="Retour",   command=self.show_friends_list(lebo))
+        back_button = tk.Button(leboframe, text="Retour",   command=lambda:self.show_friends_list(lebo))
         back_button.pack(side="left", padx=10, pady=10)
 
         # Ajouter un bouton "Invitations envoyées"
