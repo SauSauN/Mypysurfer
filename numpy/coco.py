@@ -309,7 +309,6 @@ class Browser(QMainWindow):
                 # Fermer l'onglet
                 self.tab_widget.removeTab(current_index)
 
-
     def reopen_last_closed_tab(self):
         """Réouvrir le dernier onglet fermé depuis la file."""
         first_value = None
@@ -329,7 +328,7 @@ class Browser(QMainWindow):
         # Extraire l'URL et le titre du dictionnaire
         url = first_value["url"]
         title = first_value["title"]
-        
+
         self.open_new_tab()
         current_browser = self.tab_widget.currentWidget()
         
@@ -431,8 +430,8 @@ class Browser(QMainWindow):
     def navigate_home(self):
         """Navigue vers la page d'accueil en fonction du moteur de recherche sélectionné."""
         current_browser = self.tab_widget.currentWidget()
+        selected_engine = self.search_engine_selector.currentText()  # Récupère le moteur de recherche sélectionné
         if current_browser:
-            selected_engine = self.search_engine_selector.currentText()  # Récupère le moteur de recherche sélectionné
 
             if selected_engine == "Google":
                 current_browser.setUrl(QUrl("https://www.google.com"))
