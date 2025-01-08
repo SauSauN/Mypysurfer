@@ -1,3 +1,4 @@
+from collections import deque
 import re
 import sqlite3
 
@@ -5,8 +6,9 @@ from PyQt5.QtCore import QUrl
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QTabWidget, QWidget, QMenu, QAction
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineHistory
-from PyQt5.QtGui import QPixmap 
-    
+from PyQt5.QtWidgets import QApplication, QMainWindow, QShortcut
+from PyQt5.QtGui import QKeySequence 
+
 from datetime import datetime
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
@@ -164,8 +166,32 @@ class Browser(QMainWindow):
         self.history = []
         self.favorites = []
 
+        # Liste pour stocker les onglets fermés
+        self.closed_tabs = []
+                
+        # Initialisation de la deque pour les favoris
+        self.file = deque(maxlen=10)  # Limite de taille de 10 éléments
+
         # Initialisation des favoris SQLite
         self.init_favorites_db()
+
+
+
+        # Raccourci pour ouvrir un nouvel onglet
+        self.new_tab_shortcut = QShortcut(QKeySequence("Ctrl+T"), self)
+        self.new_tab_shortcut.activated.connect(self.open_new_tab)
+
+        # Raccourci pour fermer un onglet
+        self.close_tab_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
+        self.close_tab_shortcut.activated.connect(self.close_current_tab)
+
+        # Raccourci pour rouvrir l'onglet fermé
+        self.reopen_tab_shortcut = QShortcut(QKeySequence("Ctrl+Shift+T"), self)
+        self.reopen_tab_shortcut.activated.connect(self.reopen_last_closed_tab)
+
+        # Raccourci pour rafraîchir la page
+        self.refresh_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
+        self.refresh_shortcut.activated.connect(self.refresh)
 
         self.onglet_name = "Nouvel Onglet"
         self.onglet_Favoris = "Favoris"
@@ -199,6 +225,16 @@ class Browser(QMainWindow):
             )
         """)
         self.db_connection.commit()
+        self.db_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS openpages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT,
+                url TEXT UNIQUE NOT NULL
+            )
+        """)
+        self.db_connection.commit()
+
+
         self.load_favorites_from_db()
         self.load_history_from_db()
 
@@ -249,7 +285,66 @@ class Browser(QMainWindow):
     def is_valid_domain(self, url):
         """Vérifie si l'URL est un domaine valide sans le protocole (ex: youtube.com)."""
         return re.match(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,10}$', url) is not None
-    
+
+    def close_current_tab(self):
+        """Fermer l'onglet actuel et sauvegarder les informations."""
+        current_index = self.tab_widget.currentIndex()
+        if current_index != -1: 
+            browser = self.tab_widget.widget(current_index)
+            if isinstance(browser, QWebEngineView):
+                # Obtenir l'URL de la page active
+                url = browser.url().toString() 
+                # Obtenir le titre de l'onglet
+                title = self.tab_widget.tabText(current_index)
+                
+                # Sauvegarder dans la base de données
+                try:
+                    # Insérer les données dans la table 'openpages'
+                    self.db_cursor.execute("INSERT INTO openpages (title, url) VALUES (?, ?)", (title, url))
+                    self.db_connection.commit()  # Commit des changements
+                except sqlite3.IntegrityError:
+                    # Si l'URL existe déjà, ne pas l'ajouter à nouveau
+                    print(f"L'URL {url} existe déjà dans la base de données.")
+                
+                # Fermer l'onglet
+                self.tab_widget.removeTab(current_index)
+
+
+    def reopen_last_closed_tab(self):
+        """Réouvrir le dernier onglet fermé depuis la file."""
+        first_value = None
+
+        # Charger les favoris depuis la base de données
+        self.db_cursor.execute("SELECT url, title FROM openpages")
+        for row in self.db_cursor.fetchall():
+            self.file.append({"url": row[0], "title": row[1]})
+
+        # Récupérer et défiler la première valeur
+        if self.file:  # Vérifier que la file n'est pas vide
+            first_value = self.file.popleft()
+        else:
+            print("La file est vide.")
+            return  # Sortir de la fonction si la file est vide
+
+        # Extraire l'URL et le titre du dictionnaire
+        url = first_value["url"]
+        title = first_value["title"]
+        
+        self.open_new_tab()
+        current_browser = self.tab_widget.currentWidget()
+        
+        # Navigue vers l'URL dans l'onglet actuel
+        if isinstance(current_browser, QWebEngineView):
+            # current_browser.setUrl(QUrl(url))
+            self.navigate_to_url(url,current_browser) 
+            self.history.append(url)  # Ajoute l'URL à l'historique
+
+            # Ajouter l'URL à l'historique dans la base de données
+            self.add_to_history(url)
+            
+            # Mettre à jour le titre une fois la page chargée
+            current_browser.titleChanged.connect(self.update_tab_title)
+
     def show_functionality_menu(self):
         """Affiche un menu avec des fonctionnalités."""
         menu = QMenu(self)
@@ -275,17 +370,20 @@ class Browser(QMainWindow):
         full_screen_button.triggered.connect(self.toggle_full_screen)
         full_screen_button.setToolTip("Activer/désactiver le mode plein écran.")
 
-        screenshot_button = QAction("📸 Capture")
+        screenshot_button = QAction("📸 Capture", self)
         screenshot_button.triggered.connect(self.take_screenshot)
         screenshot_button.setToolTip("Capturer une image de la page actuelle.")
         
-        zoom_in_button = QAction("🔍 +")
+        zoom_in_button = QAction("🔍 +", self)
         zoom_in_button.triggered.connect(self.zoom_in)
         zoom_in_button.setToolTip("Zoomer sur la page.")
 
-        zoom_out_button = QAction("🔍 -")
+        zoom_out_button = QAction("🔍 -", self)
         zoom_out_button.triggered.connect(self.zoom_out)
         zoom_out_button.setToolTip("Dézoomer sur la page.")
+
+        
+
 
 
 
@@ -318,8 +416,7 @@ class Browser(QMainWindow):
         # Accéder à la page du navigateur pour obtenir et modifier le zoom
         current_zoom = self.browser.page().zoomFactor()
         self.browser.page().setZoomFactor(current_zoom - 0.1)
-
-
+    
     def take_screenshot(self):
         # Utilisation de QWidget.grab() pour capturer une image de la fenêtre
         screenshot = self.grab()  # Prendre une capture d'écran de la fenêtre
@@ -330,8 +427,6 @@ class Browser(QMainWindow):
         
         if file_path:
             screenshot.save(file_path, 'PNG')  # Sauvegarder l'image à l'emplacement sélectionné
-
-
 
     def navigate_home(self):
         """Navigue vers la page d'accueil en fonction du moteur de recherche sélectionné."""
