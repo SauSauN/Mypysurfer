@@ -172,6 +172,8 @@ class Browser(QMainWindow):
         # Initialisation de la deque pour les favoris
         self.file = deque(maxlen=10)  # Limite de taille de 10 éléments
 
+        self.pile = [] 
+
         # Initialisation des favoris SQLite
         self.init_favorites_db()
 
@@ -297,52 +299,60 @@ class Browser(QMainWindow):
                 # Obtenir le titre de l'onglet
                 title = self.tab_widget.tabText(current_index)
                 
-                # Sauvegarder dans la base de données
+                # Sauvegarder dans la base de données et ajouter à la file
                 try:
-                    # Insérer les données dans la table 'openpages'
                     self.db_cursor.execute("INSERT INTO openpages (title, url) VALUES (?, ?)", (title, url))
-                    self.db_connection.commit()  # Commit des changements
+                    self.db_connection.commit()
                 except sqlite3.IntegrityError:
-                    # Si l'URL existe déjà, ne pas l'ajouter à nouveau
                     print(f"L'URL {url} existe déjà dans la base de données.")
+                
+                # Sauvegarder dans la base de données
+                self.pile.append({"url": url, "title": title}) 
+
                 
                 # Fermer l'onglet
                 self.tab_widget.removeTab(current_index)
 
     def reopen_last_closed_tab(self):
         """Réouvrir le dernier onglet fermé depuis la file."""
-        first_value = None
+        if self.pile:
+            first_value = self.pile.pop()  # Retirer et retourner l'élément du dessus
 
-        # Charger les favoris depuis la base de données
-        self.db_cursor.execute("SELECT url, title FROM openpages")
-        for row in self.db_cursor.fetchall():
-            self.file.append({"url": row[0], "title": row[1]})
+            # Extraire l'URL et le titre du dictionnaire
+            url = first_value["url"]
+            title = first_value["title"]
 
-        # Récupérer et défiler la première valeur
-        if self.file:  # Vérifier que la file n'est pas vide
-            first_value = self.file.popleft()
-        else:
-            print("La file est vide.")
-            return  # Sortir de la fonction si la file est vide
-
-        # Extraire l'URL et le titre du dictionnaire
-        url = first_value["url"]
-        title = first_value["title"]
-
-        self.open_new_tab()
-        current_browser = self.tab_widget.currentWidget()
-        
-        # Navigue vers l'URL dans l'onglet actuel
-        if isinstance(current_browser, QWebEngineView):
-            # current_browser.setUrl(QUrl(url))
-            self.navigate_to_url(url,current_browser) 
-            self.history.append(url)  # Ajoute l'URL à l'historique
-
-            # Ajouter l'URL à l'historique dans la base de données
-            self.add_to_history(url)
+            self.open_new_tab()
+            current_browser = self.tab_widget.currentWidget()
             
-            # Mettre à jour le titre une fois la page chargée
-            current_browser.titleChanged.connect(self.update_tab_title)
+            # Navigue vers l'URL dans l'onglet actuel
+            if isinstance(current_browser, QWebEngineView):
+                # current_browser.setUrl(QUrl(url))
+                self.navigate_to_url(url,current_browser) 
+                self.history.append(url)  # Ajoute l'URL à l'historique
+
+                # Ajouter l'URL à l'historique dans la base de données
+                self.add_to_history(url)
+                
+                # Mettre à jour le titre une fois la page chargée
+                current_browser.titleChanged.connect(self.update_tab_title)
+        else:
+            try:  
+                self.db_cursor.execute("SELECT COUNT(*) FROM openpages")    
+                count = self.db_cursor.fetchone()[0]  # Récupérer la valeur réelle du comptage
+                
+                # Limiter à 10 éléments si le nombre total d'éléments est supérieur à 10
+                limit = min(count, 10)
+
+                # Charger les derniers 
+                self.db_cursor.execute(f"SELECT url, title FROM openpages ORDER BY id DESC LIMIT {limit}")
+                for row in self.db_cursor.fetchall():
+                    self.pile.append({"url": row[0], "title": row[1]})
+                
+                self.pile.reverse()
+                self.reopen_last_closed_tab()
+            except sqlite3.IntegrityError:
+                print(f"****")
 
     def show_functionality_menu(self):
         """Affiche un menu avec des fonctionnalités."""
@@ -743,6 +753,7 @@ class Browser(QMainWindow):
     def perform_search(self):
         """Effectuer une recherche en utilisant le moteur sélectionné, avec gestion du titre."""
         search_query = self.url_bar.text().strip()
+        self.file.clear()
         if search_query:
             url = search_query
             current_browser = self.tab_widget.currentWidget()
@@ -875,3 +886,4 @@ if __name__ == "__main__":
     window = Browser()
     window.show()
     sys.exit(app.exec_())
+
