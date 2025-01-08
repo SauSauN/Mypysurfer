@@ -4,6 +4,8 @@ import sqlite3
 from PyQt5.QtCore import QUrl
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QTabWidget, QWidget, QMenu, QAction
 from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineHistory
+from PyQt5.QtGui import QPixmap 
     
 from datetime import datetime
 from PyQt5.QtWidgets import (
@@ -25,11 +27,32 @@ class AdBlocker(QWebEngineUrlRequestInterceptor):
         self.blocked_domains = blocked_domains
 
     def interceptRequest(self, info):
-        """Intercepte les requêtes et bloque les domaines publicitaires."""
+        blocked_domains = [
+            "ads", 
+            "tracking", 
+            "doubleclick", 
+            "adservice", 
+            "googlesyndication",
+            "googler.com",
+            "facebook.com",
+            "flashtalking.com",
+            "serving-sys.com",
+            "openx.net",
+            "adroll.com",
+            "rubiconproject.com",
+            "t.co",
+            "criteo.com",
+            "amazon-adsystem.com",
+        ]
+        
+        # Vérifier si l'URL contient un domaine de publicité à bloquer
         url = info.requestUrl().toString()
-        if any(domain in url for domain in self.blocked_domains):
+        if any(domain in url for domain in blocked_domains):
             info.block(True)  # Bloque la requête
 
+        # Bloquer les fenêtres popups JavaScript
+        if "popup" in url or "advert" in url:
+            info.block(True)  # Bloque les popups JavaScript
 
 class Browser(QMainWindow):
     def __init__(self):
@@ -57,42 +80,55 @@ class Browser(QMainWindow):
         # Boutons de navigation
         self.back_button = QPushButton("<")
         self.back_button.clicked.connect(self.navigate_back)
+        self.back_button.setToolTip("Revenir à la page précédente.")
 
         self.forward_button = QPushButton(">")
         self.forward_button.clicked.connect(self.navigate_forward)
+        self.forward_button.setToolTip("Aller à la page suivante.")
 
         self.refresh_button = QPushButton("⟳")
         self.refresh_button.clicked.connect(self.refresh)
+        self.refresh_button.setToolTip("Rafraîchir la page actuelle.")
 
         self.home_button = QPushButton("🏠")
-        self.home_button.clicked.connect(self.open_new_tab)
+        self.home_button.clicked.connect(self.navigate_home)
+        self.home_button.setToolTip("Aller à la page d'accueil.")
 
         self.favorites_button = QPushButton("⭐")
         self.favorites_button.clicked.connect(self.save_to_favorites)
+        self.favorites_button.setToolTip("Ajouter la page actuelle aux favoris.")
 
         self.dark_mode_button = QPushButton("🌙")
         self.dark_mode_button.setCheckable(True)
         self.dark_mode_button.clicked.connect(self.toggle_dark_mode)
+        self.dark_mode_button.setToolTip("Activer/désactiver le mode sombre.")
 
         # Nouveau bouton de recherche
         self.search_button = QPushButton("🔍 Rechercher")
         self.search_button.clicked.connect(self.perform_search)
+        self.search_button.setToolTip("Lancer une recherche sur le web.")
 
         # Nouveau bouton pour ouvrir un nouvel onglet
         self.new_tab_button = QPushButton("+ Onglet")
         self.new_tab_button.clicked.connect(self.open_new_tab)
+        self.new_tab_button.setToolTip("Ouvrir un nouvel onglet.")
 
         # Nouveau bouton pour télécharger un fichier
         self.download_button = QPushButton("Télécharger")
         self.download_button.clicked.connect(self.download_file)
+        self.download_button.setToolTip("Télécharger le fichier de la page.")
         
         # Nouveau bouton pour afficher les informations de la page
         self.page_info_button = QPushButton("ℹ️ Infos")
         self.page_info_button.clicked.connect(self.show_page_info)
+        self.page_info_button.setToolTip("Afficher les informations de la page.")
 
         # Add a button to show the functionalities
         self.button_Fonctionnalites = QPushButton("Fonctionnalités")
         self.button_Fonctionnalites.clicked.connect(self.show_functionality_menu)
+        self.button_Fonctionnalites.setToolTip("Afficher les fonctionnalités du navigateur.")
+
+        
 
         # Barre de progression
         self.progress_bar = QProgressBar()
@@ -180,37 +216,40 @@ class Browser(QMainWindow):
         for row in self.db_cursor.fetchall():
             self.history.append({"url": row[0], "title": row[1]})
 
-    def navigate_to_url(self):  
-        """Navigue vers l'URL de la barre d'adresse.""" 
-        url = self.url_bar.text().strip()  # Enlève les espaces superflus
-        current_browser = self.tab_widget.currentWidget()
-
+    def navigate_to_url(self, url, current_browser):
+        """Navigue vers l'URL de la barre d'adresse."""
         if current_browser:
             # Cas 1 : Si l'URL commence par http:// ou https://, on la charge directement.
             if url.startswith("http://") or url.startswith("https://"):
-                pass
-            
+                self.load_url(url, current_browser)
+    
             # Cas 2 : Si l'URL commence par www., on ajoute http:// au début.
             elif url.startswith("www."):
                 url = "http://" + url
+                self.load_url(url, current_browser)
             
-            # Cas 4 : Si l'URL correspond à un domaine valide avec TLD (comme facebook.com).
-            elif re.match(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,10}$', url):  # TLD plus flexibles
+            # Cas 3 : Si l'URL est un domaine valide sans protocole (ex: youtube.com).
+            elif self.is_valid_domain(url):  # Vérifie si c'est un domaine valide
                 url = "http://" + url
+                self.load_url(url, current_browser)
             
-            # Cas 3 : Sinon, il s'agit probablement d'une recherche.
+            # Cas 4 : Sinon, c'est probablement une recherche, on utilise le moteur de recherche.
             else:
-                url = f"{self.current_search_engine}{url}"
+                search_url = f"{self.current_search_engine}{url}"
+                url = search_url
+                self.load_url(search_url, current_browser)
             
-            # Créer un objet QWebEngineHttpRequest pour personnaliser la requête
-            request = QWebEngineHttpRequest(QUrl(url))
-            
-            # Ajouter des en-têtes personnalisés (si nécessaire)
-            request.setRawHeader("User-Agent", "MonUserAgent")
+            self.url_bar.setText(url)
 
-            # Charger la page avec la requête (en utilisant load(request)) ou en utilisant load(url) directement
-            current_browser.load(request)  # Vous pouvez également utiliser `current_browser.setUrl(QUrl(url))` si vous voulez une solution plus simple.
-
+    def load_url(self, url, current_browser):
+        """Charge l'URL dans le navigateur."""
+        #print(f"Chargement de l'URL: {url}")  # Log pour vérifier l'URL avant le chargement
+        current_browser.load(QUrl(url))
+    
+    def is_valid_domain(self, url):
+        """Vérifie si l'URL est un domaine valide sans le protocole (ex: youtube.com)."""
+        return re.match(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,10}$', url) is not None
+    
     def show_functionality_menu(self):
         """Affiche un menu avec des fonctionnalités."""
         menu = QMenu(self)
@@ -218,47 +257,141 @@ class Browser(QMainWindow):
         # Créer les actions du menu
         show_favorites_action = QAction("Afficher les favoris", self)
         show_favorites_action.triggered.connect(self.show_favorites)
+        show_favorites_action.setToolTip("Afficher la liste des favoris.")
 
         show_history_action = QAction("Afficher l'historique", self)
         show_history_action.triggered.connect(self.show_history)
+        show_history_action.setToolTip("Afficher l'historique des pages.")
         
         enable_adblock_action = QAction("Activer AdBlock", self)
         enable_adblock_action.triggered.connect(self.enable_ad_blocker)
+        enable_adblock_action.setToolTip("Activer le bloqueur de publicités.")
         
         disable_adblock_action = QAction("Désactiver AdBlock", self)
         disable_adblock_action.triggered.connect(self.disable_ad_blocker)
+        enable_adblock_action.setToolTip("Désactiver le bloqueur de publicités.")
+
+        full_screen_button = QAction("⛶ Activer/désactiver", self)
+        full_screen_button.triggered.connect(self.toggle_full_screen)
+        full_screen_button.setToolTip("Activer/désactiver le mode plein écran.")
+
+        screenshot_button = QAction("📸 Capture")
+        screenshot_button.triggered.connect(self.take_screenshot)
+        screenshot_button.setToolTip("Capturer une image de la page actuelle.")
+        
+        zoom_in_button = QAction("🔍 +")
+        zoom_in_button.triggered.connect(self.zoom_in)
+        zoom_in_button.setToolTip("Zoomer sur la page.")
+
+        zoom_out_button = QAction("🔍 -")
+        zoom_out_button.triggered.connect(self.zoom_out)
+        zoom_out_button.setToolTip("Dézoomer sur la page.")
+
+
+
 
         # Ajouter les actions au menu
         menu.addAction(show_favorites_action)
         menu.addAction(show_history_action)
         menu.addAction(enable_adblock_action)
         menu.addAction(disable_adblock_action)
+        menu.addAction(full_screen_button)
+        menu.addAction(screenshot_button)
+        menu.addAction(zoom_in_button)
+        menu.addAction(zoom_out_button)
 
         # Afficher le menu
         menu.exec_(self.button_Fonctionnalites.mapToGlobal(self.button_Fonctionnalites.rect().topLeft()))
+
+    def toggle_full_screen(self):
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+
+    def zoom_in(self):
+        # Accéder à la page du navigateur pour obtenir et modifier le zoom
+        current_zoom = self.browser.page().zoomFactor()
+        self.browser.page().setZoomFactor(current_zoom + 0.1)
+
+    def zoom_out(self):
+        # Accéder à la page du navigateur pour obtenir et modifier le zoom
+        current_zoom = self.browser.page().zoomFactor()
+        self.browser.page().setZoomFactor(current_zoom - 0.1)
+
+
+    def take_screenshot(self):
+        # Utilisation de QWidget.grab() pour capturer une image de la fenêtre
+        screenshot = self.grab()  # Prendre une capture d'écran de la fenêtre
+        
+        # Ouvrir une boîte de dialogue pour demander à l'utilisateur où enregistrer l'image
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(self, "Enregistrer l'image", "", "Images PNG (*.png);;Tous les fichiers (*)", options=options)
+        
+        if file_path:
+            screenshot.save(file_path, 'PNG')  # Sauvegarder l'image à l'emplacement sélectionné
+
+
+
+    def navigate_home(self):
+        """Navigue vers la page d'accueil en fonction du moteur de recherche sélectionné."""
+        current_browser = self.tab_widget.currentWidget()
+        if current_browser:
+            selected_engine = self.search_engine_selector.currentText()  # Récupère le moteur de recherche sélectionné
+
+            if selected_engine == "Google":
+                current_browser.setUrl(QUrl("https://www.google.com"))
+                # Ajouter un texte par défaut à la barre d'adresse
+                self.url_bar.setText("https://www.google.com")
+            elif selected_engine == "Bing":
+                current_browser.setUrl(QUrl("https://www.bing.com"))
+                self.url_bar.setText("https://www.bing.com")
+            elif selected_engine == "DuckDuckGo":
+                current_browser.setUrl(QUrl("https://duckduckgo.com"))
+                self.url_bar.setText("https://duckduckgo.com")
+            elif selected_engine == "Yahoo":
+                current_browser.setUrl(QUrl("https://search.yahoo.com"))
+                self.url_bar.setText("https://search.yahoo.com")
+                    # Si aucun onglet n'est ouvert, créez-en un nouveau
+                    
+        elif current_browser is None:
+            self.open_new_tab()
 
     def enable_ad_blocker(self):
         """Active le blocage des publicités."""
         blocked_domains = ["ads", "tracking", "doubleclick", "adservice"]
         self.ad_blocker = AdBlocker(blocked_domains)  # Crée une instance de l'intercepteur
         
-        # Appliquer l'intercepteur à chaque onglet
+        self.init_browser()
+        
+        # Change la couleur du bouton en rouge clair
+        self.button_Fonctionnalites.setStyleSheet("""
+                color: red; 
+            }
+        """)
+
+    def init_browser(self):
+        # Applique l'intercepteur à chaque onglet du navigateur
         for i in range(self.tab_widget.count()):
             browser = self.tab_widget.widget(i)
-            if hasattr(browser, "page"):
-                browser.page().profile().setUrlRequestInterceptor(self.ad_blocker)
-        
-        self.statusBar().showMessage("AdBlock activé")
+            if isinstance(browser, QWebEngineView):
+                browser.page().profile().setRequestInterceptor(self.ad_blocker)
 
     def disable_ad_blocker(self):
         """Désactive le blocage des publicités."""
         # Supprime l'intercepteur pour chaque onglet
         for i in range(self.tab_widget.count()):
             browser = self.tab_widget.widget(i)
-            if hasattr(browser, "page"):
-                browser.page().profile().setUrlRequestInterceptor(None)
-        
-        self.statusBar().showMessage("AdBlock désactivé")
+            if isinstance(browser, QWebEngineView):  # Vérifie que le widget est bien un QWebEngineView
+                # Supprime l'intercepteur de la page
+                browser.page().profile().setRequestInterceptor(None)
+
+        # Change la couleur du bouton en rouge clair
+        self.button_Fonctionnalites.setStyleSheet("""
+            QPushButton {
+                
+            }
+        """)
 
     def add_to_history(self, url):
         """Ajoute une URL à la base de données de l'historique en évitant les doublons, avec une date de visite personnalisée."""
@@ -281,39 +414,43 @@ class Browser(QMainWindow):
 
     def change_search_engine(self):
         """Change le moteur de recherche basé sur la sélection."""
-        engine = self.search_engine_selector.currentText()
-        if engine == "Google":
+        self.engine = self.search_engine_selector.currentText()
+        if self.engine == "Google":
             self.current_search_engine = "https://www.google.com/search?q="
-        elif engine == "Bing":
+        elif self.engine == "Bing":
             self.current_search_engine = "https://www.bing.com/search?q="
-        elif engine == "DuckDuckGo":
+        elif self.engine == "DuckDuckGo":
             self.current_search_engine = "https://duckduckgo.com/?q="
-        elif engine == "Yahoo":
+        elif self.engine == "Yahoo":
             self.current_search_engine = "https://search.yahoo.com/search?p="
-
-    def navigate_home(self):
-        """Navigue vers la page d'accueil."""
-        current_browser = self.tab_widget.currentWidget()
-        if current_browser:
-            current_browser.setUrl(QUrl("https://www.google.com"))
 
     def navigate_back(self):
         """Revenir à la page précédente."""
         current_browser = self.tab_widget.currentWidget()
         if current_browser:
             current_browser.back()
+            current_url = current_browser.url().toString()
+            self.url_bar.setText(current_url)
+            # Affiche uniquement la page actuelle après le retour
+            #current_entry = current_browser.history().currentItem()
+            #print(f"**********************************************************")
+            #print(f"++++++++++++URL actuelle: {current_entry.url().toString()}, Titre: {current_entry.title()}++++++++++++")
 
     def navigate_forward(self):
-        """Aller à la page suivante."""
+        """Aller à la page suivante, si possible."""
         current_browser = self.tab_widget.currentWidget()
-        if current_browser:
+        if current_browser and current_browser.history().canGoForward():
             current_browser.forward()
+            current_url = current_browser.url().toString()
+            self.url_bar.setText(current_url)
 
     def refresh(self):
         """Rafraîchir l'onglet actuel."""
         current_browser = self.tab_widget.currentWidget()
         if current_browser:
             current_browser.reload()
+            current_url = current_browser.url().toString()
+            self.url_bar.setText(current_url)
 
     def save_to_favorites(self):
         """Ajouter l'URL actuelle aux favoris."""
@@ -327,7 +464,6 @@ class Browser(QMainWindow):
                 self.db_cursor.execute("INSERT INTO favorites (url, title,date_visited) VALUES (?, ?, ?)", (url, title,current_date))
                 self.db_connection.commit()
                 self.load_favorites_from_db()
-                print(f"Favori ajouté : {url} - {title}")
             except sqlite3.IntegrityError:
                 print("Ce favori existe déjà.")
 
@@ -335,6 +471,7 @@ class Browser(QMainWindow):
         """Affiche les favoris dans un nouvel onglet."""
         favorites_browser = QWebEngineView()
         favorites_browser.setUrl(QUrl("about:blank"))
+        self.url_bar.setText("about:blank")
 
         # HTML et CSS pour l'affichage des favoris
         html_content = """
@@ -403,6 +540,7 @@ class Browser(QMainWindow):
         """Affiche l'historique dans un nouvel onglet depuis la base de données avec le même style CSS que pour les favoris."""
         history_browser = QWebEngineView()  # Crée un nouveau QWebEngineView pour l'onglet
         history_browser.setUrl(QUrl("about:blank"))  # Définir une URL vide ou blanche
+        self.url_bar.setText("about:blank")
 
         # HTML et CSS pour l'affichage de l'historique
         html_content = """
@@ -512,7 +650,7 @@ class Browser(QMainWindow):
         """Effectuer une recherche en utilisant le moteur sélectionné, avec gestion du titre."""
         search_query = self.url_bar.text().strip()
         if search_query:
-            url = self.current_search_engine + search_query
+            url = search_query
             current_browser = self.tab_widget.currentWidget()
             
             # Si aucun onglet n'est ouvert, créez-en un nouveau
@@ -522,7 +660,8 @@ class Browser(QMainWindow):
             
             # Navigue vers l'URL dans l'onglet actuel
             if isinstance(current_browser, QWebEngineView):
-                current_browser.setUrl(QUrl(url))
+                # current_browser.setUrl(QUrl(url))
+                self.navigate_to_url(url,current_browser) 
                 self.history.append(url)  # Ajoute l'URL à l'historique
 
                 # Ajouter l'URL à l'historique dans la base de données
@@ -626,14 +765,17 @@ class Browser(QMainWindow):
             # Ouvrir un nouvel onglet pour afficher ces informations
             index = self.tab_widget.addTab(info_browser, "Infos Page")
             self.tab_widget.setCurrentIndex(index)
+            self.url_bar.setText("about:blank")
 
     def open_new_tab(self):
         """Ouvre un nouvel onglet."""        
-        browser = QWebEngineView()
-        browser.setUrl(QUrl("https://www.google.com"))
-        index = self.tab_widget.addTab(browser, "Nouvel Onglet")
+        self.browser = QWebEngineView()
+        self.browser.setUrl(QUrl("https://www.google.com"))
+        index = self.tab_widget.addTab(self.browser, "Nouvel Onglet")
         self.tab_widget.setCurrentIndex(index)
-
+        # Ajouter un texte par défaut à la barre d'adresse
+        self.url_bar.setText("https://www.google.com")
+        
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = Browser()

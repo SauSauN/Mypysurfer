@@ -1,23 +1,52 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow
+import sys
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLineEdit
+from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt5.QtCore import QUrl
 
-class Browser(QMainWindow):
+class PDFViewer(QWidget):
+
     def __init__(self):
         super().__init__()
 
-        # Définir le titre de la fenêtre
-        self.setWindowTitle("PySurf")
+        self.initUI()
 
-        # Agrandir la fenêtre à l'écran dès l'exécution (maximiser la fenêtre)
-        self.showMaximized()
+    def initUI(self):
+        vbox = QVBoxLayout(self)
 
-        # Assurez-vous qu'aucune modification de la taille ne se produit après l'initialisation
-        # Exemple : self.resize(1024, 768) si vous ne voulez pas que la fenêtre se réduise automatiquement
+        # Zone de texte pour entrer l'URL du PDF
+        self.url_bar = QLineEdit(self)
+        self.url_bar.setPlaceholderText('Entrez l\'URL du fichier PDF')
 
-        # Afficher la fenêtre
+        # Bouton pour charger le PDF
+        load_button = QPushButton('Charger PDF', self)
+        load_button.clicked.connect(self.load_pdf)
+
+        # QWebEngineView pour afficher le PDF
+        self.webEngineView = QWebEngineView()
+
+        # Ajouter les éléments à la mise en page
+        vbox.addWidget(self.url_bar)
+        vbox.addWidget(load_button)
+        vbox.addWidget(self.webEngineView)
+
+        self.setLayout(vbox)
+
+        # Configuration de la fenêtre
+        self.setWindowTitle('Visualiser un PDF en ligne')
+        self.setGeometry(300, 300, 800, 600)
         self.show()
 
-# Application PyQt5
-if __name__ == "__main__":
-    app = QApplication([])
-    window = Browser()
-    app.exec_()
+    def load_pdf(self):
+        """Charge un PDF à partir de l'URL donnée."""
+        pdf_url = self.url_bar.text()
+        if pdf_url:
+            # Charge le fichier PDF dans le QWebEngineView
+            self.webEngineView.setUrl(QUrl(pdf_url))
+
+def main():
+    app = QApplication(sys.argv)
+    viewer = PDFViewer()
+    sys.exit(app.exec_())
+
+if __name__ == '__main__':
+    main()
