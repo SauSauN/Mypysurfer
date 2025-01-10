@@ -1,27 +1,22 @@
-from collections import deque
+from io import BytesIO
 import re
 import sqlite3
-
-from PyQt5.QtCore import QUrl
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QPushButton, QTabWidget, QWidget, QMenu, QAction
-from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineHistory
-from PyQt5.QtWidgets import QApplication, QMainWindow, QShortcut
-from PyQt5.QtGui import QKeySequence 
-
-from datetime import datetime
-from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
-    QLineEdit, QPushButton, QProgressBar, QComboBox, QListWidget, QDialog,
-    QFileDialog, QLabel, QTabWidget
-)
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineSettings
-from PyQt5.QtCore import QUrl
-from PyQt5.QtWebEngineCore import QWebEngineHttpRequest
 import sys
-import os
+from tkinter import Image
+import requests
 
+from collections import deque
+from datetime import datetime
+
+from PyQt5.QtCore import QUrl,QByteArray
+from PyQt5.QtGui import   QIcon,  QPixmap,  QKeySequence 
+from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, 
+    QWidget, QLineEdit, QPushButton, QProgressBar, QComboBox,
+    QFileDialog, QTabWidget, QShortcut, QMenu, QAction
+)
 
 class AdBlocker(QWebEngineUrlRequestInterceptor):
     def __init__(self, blocked_domains):
@@ -379,15 +374,15 @@ class Browser(QMainWindow):
         full_screen_button.triggered.connect(self.toggle_full_screen)
         full_screen_button.setToolTip("Activer/désactiver le mode plein écran.")
 
-        screenshot_button = QAction("📸 Capture", self)
+        screenshot_button = QAction("📸 Capture de page", self)
         screenshot_button.triggered.connect(self.take_screenshot)
         screenshot_button.setToolTip("Capturer une image de la page actuelle.")
         
-        zoom_in_button = QAction("🔍 +", self)
+        zoom_in_button = QAction("🔍 zoom +", self)
         zoom_in_button.triggered.connect(self.zoom_in)
         zoom_in_button.setToolTip("Zoomer sur la page.")
 
-        zoom_out_button = QAction("🔍 -", self)
+        zoom_out_button = QAction("🔍 zoom -", self)
         zoom_out_button.triggered.connect(self.zoom_out)
         zoom_out_button.setToolTip("Dézoomer sur la page.")
 
@@ -500,11 +495,6 @@ class Browser(QMainWindow):
     def add_to_history(self, url):
         """Ajoute une URL à la base de données de l'historique en évitant les doublons, avec une date de visite personnalisée."""
         try:
-            # Vérifie si l'URL existe déjà dans l'historique
-            self.db_cursor.execute("SELECT 1 FROM history WHERE url = ?", (url,))
-            if self.db_cursor.fetchone():
-                print(f"L'URL {url} est déjà dans l'historique.")
-                return  # Si l'URL existe déjà, on ne l'ajoute pas
 
             # Récupère la date et l'heure actuelles
             current_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -702,7 +692,7 @@ class Browser(QMainWindow):
             for row in rows:
                 url = row[0]
                 date = row[1]
-                html_content += f"<li><p>{date}</p>---<a href='{url}' target='_blank'>{url}</a></li>"
+                html_content += f"<li><p>{date}</p>--- <a href='{url}' target='_blank'>{url}</a></li>"
 
             html_content += """
             </ul>
@@ -876,11 +866,14 @@ class Browser(QMainWindow):
         """Ouvre un nouvel onglet."""        
         self.browser = QWebEngineView()
         self.browser.setUrl(QUrl("https://www.google.com"))
+
+        # Ajouter un nouvel onglet avec un titre temporaire
         index = self.tab_widget.addTab(self.browser, "Nouvel Onglet")
         self.tab_widget.setCurrentIndex(index)
+
         # Ajouter un texte par défaut à la barre d'adresse
         self.url_bar.setText("https://www.google.com")
-        
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = Browser()
